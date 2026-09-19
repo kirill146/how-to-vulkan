@@ -8,6 +8,9 @@
 #define VOLK_IMPLEMENTATION
 #include <Volk/volk.h>
 
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
+
 void CheckVkResult(VkResult res, const char* file, int line) {
   if (res != VK_SUCCESS) {
     throw std::runtime_error(file + std::string(":") + std::to_string(line) + ": failed with VkResult " + std::to_string(res));
@@ -101,6 +104,21 @@ void run(uint32_t deviceIndex) {
   volkLoadDevice(device);
   VkQueue queue;
   vkGetDeviceQueue(device, queueFamily, 0, &queue);
+
+  VmaVulkanFunctions vkFunctions{
+    .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
+    .vkGetDeviceProcAddr = vkGetDeviceProcAddr,
+    .vkCreateImage = vkCreateImage
+  };
+  VmaAllocatorCreateInfo allocatorInfo{
+    .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+    .physicalDevice = devices[deviceIndex],
+    .device = device,
+    .pVulkanFunctions = &vkFunctions,
+    .instance = instance
+  };
+  VmaAllocator allocator;
+  VK_CHECK(vmaCreateAllocator(&allocatorInfo, &allocator));
 
   vkDestroyDevice(device, nullptr);
   vkDestroyInstance(instance, nullptr);
