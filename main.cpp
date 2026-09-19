@@ -11,6 +11,9 @@
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
+
 void CheckVkResult(VkResult res, const char* file, int line) {
   if (res != VK_SUCCESS) {
     throw std::runtime_error(file + std::string(":") + std::to_string(line) + ": failed with VkResult " + std::to_string(res));
@@ -18,8 +21,17 @@ void CheckVkResult(VkResult res, const char* file, int line) {
 }
 #define VK_CHECK(x) CheckVkResult(x, __FILE__, __LINE__)
 
+void CheckSDLResult(bool res, const char* file, int line) {
+  if (!res) {
+    throw std::runtime_error(file + std::string(":") + std::to_string(line) + ": SDL call failed");
+  }
+}
+#define SDL_CHECK(x) CheckSDLResult(x, __FILE__, __LINE__)
+
 void run(uint32_t deviceIndex) {
   VK_CHECK(volkInitialize());
+  SDL_CHECK(SDL_Init(SDL_INIT_VIDEO));
+  SDL_CHECK(SDL_Vulkan_LoadLibrary(NULL));
 
   VkApplicationInfo appInfo{
     .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -27,8 +39,8 @@ void run(uint32_t deviceIndex) {
     .apiVersion = VK_API_VERSION_1_3,
   };
   uint32_t instanceExtensionsCount = 0;
-  // const char* const* instanceExtensions = SDL_Vulkan_GetInstanceExtensions(&instanceExtensionsCount);
-  const char* const* instanceExtensions = nullptr;
+  const char* const* instanceExtensions = SDL_Vulkan_GetInstanceExtensions(&instanceExtensionsCount);
+  // const char* const* instanceExtensions = nullptr;
   VkInstanceCreateInfo instanceInfo{
     .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
     .pApplicationInfo = &appInfo,
@@ -63,7 +75,7 @@ void run(uint32_t deviceIndex) {
       break;
     }
   }
-  // VK_CHECK(SDL_Vulkan_GetPresentationSupport(instance, devices[deviceIndex], queueFamily));
+  SDL_CHECK(SDL_Vulkan_GetPresentationSupport(instance, devices[deviceIndex], queueFamily));
 
   const float qfpriorities = 1.0f;
   VkDeviceQueueCreateInfo queueInfo{
@@ -120,6 +132,17 @@ void run(uint32_t deviceIndex) {
   VmaAllocator allocator;
   VK_CHECK(vmaCreateAllocator(&allocatorInfo, &allocator));
 
+  SDL_Window* window = SDL_CreateWindow("How to Vulkan", 1280u, 720u, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+  if (window == nullptr) {
+    throw std::runtime_error("SDL_CreateWindow() failed");
+  }
+  VkSurfaceKHR surface;
+  SDL_CHECK(SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface));
+  VkSurfaceCapabilitiesKHR surfaceCaps;
+  VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(devices[deviceIndex], surface, &surfaceCaps));
+
+  SDL_Vulkan_DestroySurface(instance, surface, nullptr);
+  vmaDestroyAllocator(allocator);
   vkDestroyDevice(device, nullptr);
   vkDestroyInstance(instance, nullptr);
 }
@@ -136,5 +159,6 @@ int main(int argc, const char* argv[]) {
     std::cerr << e.what() << std::endl;
     return 1;
   }
+
   return 0;
 }
