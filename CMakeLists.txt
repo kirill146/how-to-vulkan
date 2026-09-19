@@ -9,6 +9,26 @@ file(DOWNLOAD
   EXPECTED_HASH SHA256=8487b7995ad3b263eb73bc5b9a77d71aa69b6bef5d58a715c02d2663afd81f1a
 )
 
+file(DOWNLOAD
+  https://raw.githubusercontent.com/tinyobjloader/tinyobjloader/refs/tags/v2.0.0rc13/tiny_obj_loader.h
+  ${CMAKE_SOURCE_DIR}/external/tinyobjloader/tiny_obj_loader.h
+  EXPECTED_HASH SHA256=a55a0933a29caa0e9e84ef62a45cbe8cb25dd0e17bc2850c591c6b06f95d5ebe
+)
+
+if (NOT EXISTS ${CMAKE_SOURCE_DIR}/assets/suzanne.obj)
+  file(DOWNLOAD
+    https://raw.githubusercontent.com/SaschaWillems/HowToVulkan/refs/heads/main/source/assets/suzanne.obj
+    ${CMAKE_SOURCE_DIR}/assets/suzanne.obj
+  )
+endif()
+
+if (NOT EXISTS ${CMAKE_SOURCE_DIR}/assets/suzanne.mtl)
+  file(DOWNLOAD
+    https://raw.githubusercontent.com/SaschaWillems/HowToVulkan/refs/heads/main/source/assets/suzanne.mtl
+    ${CMAKE_SOURCE_DIR}/assets/suzanne.mtl
+  )
+endif()
+
 set(SDL_VER 3.4.16)
 file(DOWNLOAD
   https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VER}/SDL3-devel-${SDL_VER}-VC.zip
@@ -25,6 +45,7 @@ add_executable(htv main.cpp)
 target_include_directories(htv SYSTEM PRIVATE
   ${Vulkan_INCLUDE_DIRS}
   external/vma
+  external/tinyobjloader
 )
 
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/external/SDL3-${SDL_VER}")
@@ -35,3 +56,7 @@ add_custom_command(TARGET htv POST_BUILD
 )
 
 target_compile_features(htv PRIVATE cxx_std_20)
+
+add_custom_command(TARGET htv POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different ${CMAKE_SOURCE_DIR}/assets/ $<TARGET_FILE_DIR:htv>/assets/
+)

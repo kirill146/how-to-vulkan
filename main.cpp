@@ -14,6 +14,9 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
+
 void CheckVkResult(VkResult res, const char* file, int line) {
   if (res != VK_SUCCESS) {
     throw std::runtime_error(file + std::string(":") + std::to_string(line) + ": failed with VkResult " + std::to_string(res));
@@ -210,6 +213,14 @@ void run(uint32_t deviceIndex) {
   };
   VkImageView depthImageView;
   VK_CHECK(vkCreateImageView(device, &depthViewInfo, nullptr, &depthImageView));
+
+  // Mesh data
+  tinyobj::attrib_t attrib;
+  std::vector<tinyobj::shape_t> shapes;
+  std::vector<tinyobj::material_t> materials;
+  if (!tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/suzanne.obj")) {
+    throw std::runtime_error("Can't load .obj");
+  }
 
   vkDestroyImageView(device, depthImageView, nullptr);
   vmaDestroyImage(allocator, depthImage, depthImageAllocation);
