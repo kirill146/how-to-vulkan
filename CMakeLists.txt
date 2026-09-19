@@ -40,12 +40,24 @@ file(ARCHIVE_EXTRACT
   DESTINATION ${CMAKE_SOURCE_DIR}/external/
 )
 
+set(GLM_VER 1.0.3)
+file(DOWNLOAD
+  https://github.com/g-truc/glm/releases/download/${GLM_VER}/glm-${GLM_VER}.7z
+  ${CMAKE_SOURCE_DIR}/external/glm-${GLM_VER}.7z
+  EXPECTED_HASH SHA256=df9c59d70d39dfc00903339a2841d46551b88fa55a03e53459c261efc99042f4
+)
+file(ARCHIVE_EXTRACT
+  INPUT ${CMAKE_SOURCE_DIR}/external/glm-${GLM_VER}.7z
+  DESTINATION ${CMAKE_SOURCE_DIR}/external/
+)
+
 add_executable(htv main.cpp)
 
 target_include_directories(htv SYSTEM PRIVATE
   ${Vulkan_INCLUDE_DIRS}
   external/vma
   external/tinyobjloader
+  external/glm
 )
 
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/external/SDL3-${SDL_VER}")
