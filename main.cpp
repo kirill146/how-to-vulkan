@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <array>
 
 #define VK_USE_PLATFORM_WIN32
 // #define VOLK_NO_DEVICE_PROTOTYPES
@@ -260,6 +261,43 @@ void run(uint32_t deviceIndex) {
   memcpy(vBufferAllocInfo.pMappedData, vertices.data(), vBufSize);
   memcpy(((char*)vBufferAllocInfo.pMappedData) + vBufSize, indices.data(), iBufSize);
 
+  constexpr uint32_t maxFramesInFlight = 2;
+  struct ShaderDataBuffer {
+    VkBuffer buffer;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocationInfo;
+    VkDeviceSize deviceAddress;
+  };
+  std::array<ShaderDataBuffer, maxFramesInFlight> shaderDataBuffers;
+  std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
+  struct ShaderData {
+    glm::mat4 projection;
+    glm::mat4 view;
+    glm::mat4 model[3];
+    glm::vec4 lightPos{ 0.0f, -10.0f, 10.0f, 0.0f };
+    uint32_t selected{1};
+  } shaderData{};
+  for (uint32_t i = 0; i < maxFramesInFlight; i++) {
+    VkBufferCreateInfo uBufferCI{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = sizeof(ShaderData),
+      .usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+    };
+    VmaAllocationCreateInfo uBufferAllocCI{
+      .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+      .usage = VMA_MEMORY_USAGE_AUTO
+    };
+    VK_CHECK(vmaCreateBuffer(allocator, &uBufferCI, &uBufferAllocCI, &shaderDataBuffers[i].buffer, &shaderDataBuffers[i].allocation, &shaderDataBuffers[i].allocationInfo));
+    VkBufferDeviceAddressInfo uBufferBdaInfo{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+      .buffer = shaderDataBuffers[i].buffer
+    };
+    shaderDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(device, &uBufferBdaInfo);
+  }
+
+  for (uint32_t i = 0; i < maxFramesInFlight; i++) {
+    vmaDestroyBuffer(allocator, shaderDataBuffers[i].buffer, shaderDataBuffers[i].allocation);
+  }
   vmaDestroyBuffer(allocator, vBuffer, vBufferAllocation);
   vkDestroyImageView(device, depthImageView, nullptr);
   vmaDestroyImage(allocator, depthImage, depthImageAllocation);
