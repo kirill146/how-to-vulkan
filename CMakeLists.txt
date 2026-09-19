@@ -27,17 +27,11 @@ target_include_directories(htv SYSTEM PRIVATE
   external/vma
 )
 
-add_library(sdl3 SHARED IMPORTED)
-set(SDL3_DLL "${CMAKE_SOURCE_DIR}/external/SDL3-${SDL_VER}/lib/x64/SDL3.dll")
-set_target_properties(sdl3 PROPERTIES
-  IMPORTED_IMPLIB "${CMAKE_SOURCE_DIR}/external/SDL3-${SDL_VER}/lib/x64/SDL3.lib"
-  IMPORTED_LOCATION ${SDL3_DLL}
-  INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/external/SDL3-${SDL_VER}/include"
-)
-target_link_libraries(htv PRIVATE sdl3)
+list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/external/SDL3-${SDL_VER}")
+find_package(SDL3 REQUIRED SDL3-shared)
+target_link_libraries(htv PRIVATE SDL3::SDL3)
 add_custom_command(TARGET htv POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SDL3_DLL} $<TARGET_FILE_DIR:htv> 
-  COMMAND_EXPAND_LISTS
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:htv>
 )
 
 target_compile_features(htv PRIVATE cxx_std_20)
