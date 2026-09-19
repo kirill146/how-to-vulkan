@@ -138,9 +138,41 @@ void run(uint32_t deviceIndex) {
   }
   VkSurfaceKHR surface;
   SDL_CHECK(SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface));
+  int windowWidth, windowHeight;
+  SDL_CHECK(SDL_GetWindowSize(window, &windowWidth, &windowHeight));
   VkSurfaceCapabilitiesKHR surfaceCaps;
   VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(devices[deviceIndex], surface, &surfaceCaps));
 
+  VkExtent2D swapchainExtent{ surfaceCaps.currentExtent };
+  if (surfaceCaps.currentExtent.width == 0xFFFFFFFF) {
+    swapchainExtent = { .width = (uint32_t)windowWidth, .height = (uint32_t)windowHeight };
+  }
+  const VkFormat imageFormat = VK_FORMAT_B8G8R8A8_SRGB;
+  VkSwapchainCreateInfoKHR swapchainInfo{
+    .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+    .surface = surface,
+    .minImageCount = surfaceCaps.minImageCount,
+    .imageFormat = imageFormat,
+    .imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+    .imageExtent = swapchainExtent,
+    .imageArrayLayers = 1,
+    .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+    .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+    .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+    .presentMode = VK_PRESENT_MODE_FIFO_KHR
+  };
+  VkSwapchainKHR swapchain;
+  VK_CHECK(vkCreateSwapchainKHR(device, &swapchainInfo, nullptr, &swapchain));
+
+  uint32_t imageCount;
+  VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr));
+  std::vector<VkImage> swapchainImages;
+  std::vector<VkImageView> swapchainImageViews;
+  swapchainImages.resize(imageCount);
+  swapchainImageViews.resize(imageCount);
+  VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data()));
+
+  vkDestroySwapchainKHR(device, swapchain, nullptr);
   SDL_Vulkan_DestroySurface(instance, surface, nullptr);
   vmaDestroyAllocator(allocator);
   vkDestroyDevice(device, nullptr);
