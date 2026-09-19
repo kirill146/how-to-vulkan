@@ -138,14 +138,14 @@ void run(uint32_t deviceIndex) {
   }
   VkSurfaceKHR surface;
   SDL_CHECK(SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface));
-  int windowWidth, windowHeight;
-  SDL_CHECK(SDL_GetWindowSize(window, &windowWidth, &windowHeight));
+  uint32_t windowWidth, windowHeight;
+  SDL_CHECK(SDL_GetWindowSize(window, (int*)&windowWidth, (int*)&windowHeight));
   VkSurfaceCapabilitiesKHR surfaceCaps;
   VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(devices[deviceIndex], surface, &surfaceCaps));
 
   VkExtent2D swapchainExtent{ surfaceCaps.currentExtent };
   if (surfaceCaps.currentExtent.width == 0xFFFFFFFF) {
-    swapchainExtent = { .width = (uint32_t)windowWidth, .height = (uint32_t)windowHeight };
+    swapchainExtent = { .width = windowWidth, .height = windowHeight };
   }
   const VkFormat imageFormat = VK_FORMAT_B8G8R8A8_SRGB;
   VkSwapchainCreateInfoKHR swapchainInfo{
@@ -172,6 +172,47 @@ void run(uint32_t deviceIndex) {
   swapchainImageViews.resize(imageCount);
   VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data()));
 
+  std::vector<VkFormat> depthFormatList{ VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT };
+  VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+  for (VkFormat& format : depthFormatList) {
+    VkFormatProperties2 formatProperties{ .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2 };
+    vkGetPhysicalDeviceFormatProperties2(devices[deviceIndex], format, &formatProperties);
+    if (formatProperties.formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+      depthFormat = format;
+      break;
+    }
+  }
+  VkImageCreateInfo depthImageInfo{
+    .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+    .imageType = VK_IMAGE_TYPE_2D,
+    .format = depthFormat,
+    .extent{.width = windowWidth, .height = windowHeight, .depth = 1 },
+    .mipLevels = 1,
+    .arrayLayers = 1,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
+    .tiling = VK_IMAGE_TILING_OPTIMAL,
+    .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+  };
+  VmaAllocationCreateInfo allocInfo{
+    .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+    .usage = VMA_MEMORY_USAGE_AUTO
+  };
+  VmaAllocation depthImageAllocation;
+  VkImage depthImage;
+  VK_CHECK(vmaCreateImage(allocator, &depthImageInfo, &allocInfo, &depthImage, &depthImageAllocation, nullptr));
+  VkImageViewCreateInfo depthViewInfo{
+    .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+    .image = depthImage,
+    .viewType = VK_IMAGE_VIEW_TYPE_2D,
+    .format = depthFormat,
+    .subresourceRange{ .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 }
+  };
+  VkImageView depthImageView;
+  VK_CHECK(vkCreateImageView(device, &depthViewInfo, nullptr, &depthImageView));
+
+  vkDestroyImageView(device, depthImageView, nullptr);
+  vmaDestroyImage(allocator, depthImage, depthImageAllocation);
   vkDestroySwapchainKHR(device, swapchain, nullptr);
   SDL_Vulkan_DestroySurface(instance, surface, nullptr);
   vmaDestroyAllocator(allocator);
