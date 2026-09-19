@@ -295,6 +295,31 @@ void run(uint32_t deviceIndex) {
     shaderDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(device, &uBufferBdaInfo);
   }
 
+  VkSemaphoreCreateInfo semaphoreCI{
+    .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+  };
+  VkFenceCreateInfo fenceCI{
+    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+    .flags = VK_FENCE_CREATE_SIGNALED_BIT
+  };
+  std::vector<VkFence> fences(maxFramesInFlight);
+  std::vector<VkSemaphore> imageAcquiredSemaphores(maxFramesInFlight);
+  std::vector<VkSemaphore> renderCompleteSemaphores(swapchainImages.size());
+  for (uint32_t i = 0; i < maxFramesInFlight; i++) {
+    VK_CHECK(vkCreateFence(device, &fenceCI, nullptr, &fences[i]));
+    VK_CHECK(vkCreateSemaphore(device, &semaphoreCI, nullptr, &imageAcquiredSemaphores[i]));
+  }
+  for (uint32_t i = 0; i < (uint32_t)renderCompleteSemaphores.size(); i++) {
+    VK_CHECK(vkCreateSemaphore(device, &semaphoreCI, nullptr, &renderCompleteSemaphores[i]));
+  }
+
+  for (uint32_t i = 0; i < (uint32_t)renderCompleteSemaphores.size(); i++) {
+    vkDestroySemaphore(device, renderCompleteSemaphores[i], nullptr);
+  }
+  for (uint32_t i = 0; i < maxFramesInFlight; i++) {
+    vkDestroyFence(device, fences[i], nullptr);
+    vkDestroySemaphore(device, imageAcquiredSemaphores[i], nullptr);
+  }
   for (uint32_t i = 0; i < maxFramesInFlight; i++) {
     vmaDestroyBuffer(allocator, shaderDataBuffers[i].buffer, shaderDataBuffers[i].allocation);
   }
