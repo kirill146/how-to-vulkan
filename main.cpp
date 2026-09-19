@@ -269,7 +269,6 @@ void run(uint32_t deviceIndex) {
     VkDeviceSize deviceAddress;
   };
   std::array<ShaderDataBuffer, maxFramesInFlight> shaderDataBuffers;
-  std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
   struct ShaderData {
     glm::mat4 projection;
     glm::mat4 view;
@@ -313,6 +312,24 @@ void run(uint32_t deviceIndex) {
     VK_CHECK(vkCreateSemaphore(device, &semaphoreCI, nullptr, &renderCompleteSemaphores[i]));
   }
 
+  VkCommandPoolCreateInfo commandPoolCI{
+    .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+    .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+    .queueFamilyIndex = queueFamily
+  };
+  VkCommandPool commandPool;
+  VK_CHECK(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
+
+  VkCommandBufferAllocateInfo cbAllocCI{
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+    .commandPool = commandPool,
+    .commandBufferCount = maxFramesInFlight
+  };
+  std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
+  VK_CHECK(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
+
+  vkFreeCommandBuffers(device, commandPool, maxFramesInFlight, commandBuffers.data());
+  vkDestroyCommandPool(device, commandPool, nullptr);
   for (uint32_t i = 0; i < (uint32_t)renderCompleteSemaphores.size(); i++) {
     vkDestroySemaphore(device, renderCompleteSemaphores[i], nullptr);
   }
