@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <algorithm>
 
 #define VK_USE_PLATFORM_WIN32
 // #define VOLK_NO_DEVICE_PROTOTYPES
@@ -20,6 +21,8 @@
 
 #include <glm/glm.hpp>
 
+// #include <ktx.h>
+
 void CheckVkResult(VkResult res, const char* file, int line) {
   if (res != VK_SUCCESS) {
     throw std::runtime_error(file + std::string(":") + std::to_string(line) + ": failed with VkResult " + std::to_string(res));
@@ -27,12 +30,96 @@ void CheckVkResult(VkResult res, const char* file, int line) {
 }
 #define VK_CHECK(x) CheckVkResult(x, __FILE__, __LINE__)
 
-void CheckSDLResult(bool res, const char* file, int line) {
+void Check(bool res, const char* file, int line) {
   if (!res) {
-    throw std::runtime_error(file + std::string(":") + std::to_string(line) + ": SDL call failed");
+    throw std::runtime_error(file + std::string(":") + std::to_string(line) + ": check failed");
   }
 }
-#define SDL_CHECK(x) CheckSDLResult(x, __FILE__, __LINE__)
+#define CHECK(x) Check(x, __FILE__, __LINE__)
+
+struct KtxTexture {
+  uint32_t baseWidth;
+  uint32_t baseHeight;
+  uint32_t numLevels;
+  VkFormat format;
+  uint32_t dataSize;
+  void* pData;
+  std::vector<size_t> mipOffsets;
+};
+
+std::vector<uint8_t> readFile(std::string path) {
+  std::ifstream fin(path, std::ios::binary | std::ios::ate);
+  if (fin.bad()) {
+    throw std::runtime_error("Can't open " + path);
+  }
+  std::vector<uint8_t> buf(fin.tellg());
+  fin.seekg(0);
+  fin.read((char*)buf.data(), buf.size());
+  if (fin.bad()) {
+    throw std::runtime_error("Can't read " + path);
+  }
+  return buf;
+}
+
+KtxTexture ktxTextureFromFile(std::string path) {
+  std::vector<uint8_t> buf = readFile(path);
+  KtxTexture tex{};
+  uint32_t gl_type = *(uint32_t*)&buf[16];
+  uint32_t gl_format = *(uint32_t*)&buf[24];
+  uint32_t gl_internal_format = *(uint32_t*)&buf[28];
+  tex.baseWidth = *(uint32_t*)&buf[36];
+  tex.baseHeight = *(uint32_t*)&buf[40];
+  tex.numLevels = *(uint32_t*)&buf[56];
+  uint32_t bytes_of_key_value_data = *(uint32_t*)&buf[60];
+  CHECK(gl_type == 0x1401); // GL_UNSIGNED_BYTE
+  CHECK(gl_format == 0x1908); // GL_RGBA
+  CHECK(gl_internal_format == 0x8c43); // GL_SRGB8_ALPHA8
+  tex.format = VK_FORMAT_R8G8B8A8_SRGB;
+
+  uint32_t cur_width = tex.baseWidth;
+  uint32_t cur_height = tex.baseHeight;
+  uint32_t total_size = 0;
+  for (uint32_t i = 0; i < tex.numLevels; i++) {
+    total_size += cur_width * cur_height * 4;
+    cur_width = std::max(cur_width / 2, 1u);
+    cur_height = std::max(cur_height / 2, 1u);
+  }
+
+  tex.pData = malloc(total_size);
+
+  cur_width = tex.baseWidth;
+  cur_height = tex.baseHeight;
+  uint32_t cur_buf_offset = 64 + bytes_of_key_value_data;
+  for (uint32_t mip = 0; mip < tex.numLevels; mip++) {
+    uint32_t image_size = *(uint32_t*)&buf[cur_buf_offset];
+    CHECK(image_size == cur_width * cur_height * 4);
+    memcpy((char*)tex.pData + tex.dataSize, &buf[cur_buf_offset + 4], image_size);
+    tex.mipOffsets.push_back(tex.dataSize);
+    tex.dataSize += image_size;
+    cur_buf_offset += image_size + 4;
+    cur_width = std::max(cur_width / 2, 1u);
+    cur_height = std::max(cur_height / 2, 1u);
+  }
+  CHECK(cur_buf_offset == buf.size());
+
+  return tex;
+}
+
+VkFormat ktxTexture_GetVkFormat(KtxTexture* tex) {
+  return tex->format;
+}
+
+typedef uint32_t KTX_error_code;
+typedef size_t ktx_size_t;
+
+KTX_error_code ktxTexture_GetImageOffset(KtxTexture* tex, uint32_t mipLevel, uint32_t _0, uint32_t _1, ktx_size_t* mipOffset) {
+  *mipOffset = tex->mipOffsets[mipLevel];
+  return 0;
+}
+
+void ktxTexture_Destroy(KtxTexture* tex) {
+  free(tex->pData);
+}
 
 struct Vertex {
   glm::vec3 pos;
@@ -42,8 +129,8 @@ struct Vertex {
 
 void run(uint32_t deviceIndex) {
   VK_CHECK(volkInitialize());
-  SDL_CHECK(SDL_Init(SDL_INIT_VIDEO));
-  SDL_CHECK(SDL_Vulkan_LoadLibrary(NULL));
+  CHECK(SDL_Init(SDL_INIT_VIDEO));
+  CHECK(SDL_Vulkan_LoadLibrary(NULL));
 
   VkApplicationInfo appInfo{
     .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -87,7 +174,7 @@ void run(uint32_t deviceIndex) {
       break;
     }
   }
-  SDL_CHECK(SDL_Vulkan_GetPresentationSupport(instance, devices[deviceIndex], queueFamily));
+  CHECK(SDL_Vulkan_GetPresentationSupport(instance, devices[deviceIndex], queueFamily));
 
   const float qfpriorities = 1.0f;
   VkDeviceQueueCreateInfo queueInfo{
@@ -149,9 +236,9 @@ void run(uint32_t deviceIndex) {
     throw std::runtime_error("SDL_CreateWindow() failed");
   }
   VkSurfaceKHR surface;
-  SDL_CHECK(SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface));
+  CHECK(SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface));
   uint32_t windowWidth, windowHeight;
-  SDL_CHECK(SDL_GetWindowSize(window, (int*)&windowWidth, (int*)&windowHeight));
+  CHECK(SDL_GetWindowSize(window, (int*)&windowWidth, (int*)&windowHeight));
   VkSurfaceCapabilitiesKHR surfaceCaps;
   VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(devices[deviceIndex], surface, &surfaceCaps));
 
@@ -328,6 +415,222 @@ void run(uint32_t deviceIndex) {
   std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
   VK_CHECK(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
 
+  struct Texture {
+    VkImage image;
+    VmaAllocation allocation;
+    VkImageView view;
+    VkSampler sampler;
+  };
+  std::vector<Texture> textures(3);
+  std::vector<VkDescriptorImageInfo> textureDescriptors(textures.size());
+  for (uint32_t i = 0; i < (uint32_t)textures.size(); i++) {
+    std::string filename = "assets/suzanne" + std::to_string(i) + ".ktx";
+    // ktxTexture* ktxTexture = nullptr;
+    // ktxTexture_CreateFromNamedFile(filename.c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &ktxTexture);
+    KtxTexture tex = ktxTextureFromFile(filename);
+    KtxTexture* ktxTexture = &tex;
+
+    VkImageCreateInfo texImgCI{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .imageType = VK_IMAGE_TYPE_2D,
+      .format = ktxTexture_GetVkFormat(ktxTexture),
+      .extent = {.width = ktxTexture->baseWidth, .height = ktxTexture->baseHeight, .depth = 1 },
+      .mipLevels = ktxTexture->numLevels,
+      .arrayLayers = 1,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+    VmaAllocationCreateInfo texImageAllocCI{ .usage = VMA_MEMORY_USAGE_AUTO };
+    VK_CHECK(vmaCreateImage(allocator, &texImgCI, &texImageAllocCI, &textures[i].image, &textures[i].allocation, nullptr));
+
+    VkImageViewCreateInfo texViewCI{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .image = textures[i].image,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = texImgCI.format,
+      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = ktxTexture->numLevels, .layerCount = 1 }
+    };
+    VK_CHECK(vkCreateImageView(device, &texViewCI, nullptr, &textures[i].view));
+
+    VkBuffer imgSrcBuffer;
+    VmaAllocation imgSrcAllocation;
+    VkBufferCreateInfo imgSrcBufferCI{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = (uint32_t)ktxTexture->dataSize,
+      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+    };
+    VmaAllocationCreateInfo imgSrcAllocCI{
+      .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+      .usage = VMA_MEMORY_USAGE_AUTO
+    };
+    VmaAllocationInfo imgSrcAllocInfo;
+    VK_CHECK(vmaCreateBuffer(allocator, &imgSrcBufferCI, &imgSrcAllocCI, &imgSrcBuffer, &imgSrcAllocation, &imgSrcAllocInfo));
+    memcpy(imgSrcAllocInfo.pMappedData, ktxTexture->pData, ktxTexture->dataSize);
+
+    VkFenceCreateInfo fenceOneTimeCI{
+      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
+    };
+    VkFence fenceOneTime;
+    VK_CHECK(vkCreateFence(device, &fenceOneTimeCI, nullptr, &fenceOneTime));
+
+    VkCommandBuffer cbOneTime;
+    VkCommandBufferAllocateInfo cbOneTimeAI{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = commandPool,
+        .commandBufferCount = 1
+    };
+    VK_CHECK(vkAllocateCommandBuffers(device, &cbOneTimeAI, &cbOneTime));
+
+    VkCommandBufferBeginInfo cbOneTimeBI{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+    VK_CHECK(vkBeginCommandBuffer(cbOneTime, &cbOneTimeBI));
+    VkImageMemoryBarrier2 barrierTexImage{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_NONE,
+      .srcAccessMask = VK_ACCESS_2_NONE,
+      .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+      .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+      .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      .image = textures[i].image,
+      .subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = ktxTexture->numLevels, .layerCount = 1 }
+    };
+    VkDependencyInfo barrierTexInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .imageMemoryBarrierCount = 1,
+      .pImageMemoryBarriers = &barrierTexImage
+    };
+    vkCmdPipelineBarrier2(cbOneTime, &barrierTexInfo);
+    std::vector<VkBufferImageCopy> copyRegions;
+    for (auto j = 0; j < ktxTexture->numLevels; j++) {
+      ktx_size_t mipOffset = 0;
+      KTX_error_code ret = ktxTexture_GetImageOffset(ktxTexture, j, 0, 0, &mipOffset);
+      copyRegions.push_back({
+        .bufferOffset = mipOffset,
+        .imageSubresource{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = (uint32_t)j, .layerCount = 1},
+        .imageExtent{.width = ktxTexture->baseWidth >> j, .height = ktxTexture->baseHeight >> j, .depth = 1 },
+      });
+    }
+    vkCmdCopyBufferToImage(cbOneTime, imgSrcBuffer, textures[i].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copyRegions.size()), copyRegions.data());
+    VkImageMemoryBarrier2 barrierTexRead{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+      .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+      .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+      .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      .newLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+      .image = textures[i].image,
+      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = ktxTexture->numLevels, .layerCount = 1 }
+    };
+    barrierTexInfo.pImageMemoryBarriers = &barrierTexRead;
+    vkCmdPipelineBarrier2(cbOneTime, &barrierTexInfo);
+    VK_CHECK(vkEndCommandBuffer(cbOneTime));
+    VkCommandBufferSubmitInfo cbOneTimeSubmitInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+      .commandBuffer = cbOneTime
+    };
+    VkSubmitInfo2 oneTimeSI{
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+      .commandBufferInfoCount = 1,
+      .pCommandBufferInfos = &cbOneTimeSubmitInfo
+    };
+    VK_CHECK(vkQueueSubmit2(queue, 1, &oneTimeSI, fenceOneTime));
+    VK_CHECK(vkWaitForFences(device, 1, &fenceOneTime, VK_TRUE, UINT64_MAX));
+
+    VkSamplerCreateInfo samplerCI{
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+      .magFilter = VK_FILTER_LINEAR,
+      .minFilter = VK_FILTER_LINEAR,
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+      .anisotropyEnable = VK_TRUE,
+      .maxAnisotropy = 8.0f, // 8 is a widely supported value for max anisotropy
+      .maxLod = (float)ktxTexture->numLevels,
+    };
+    VK_CHECK(vkCreateSampler(device, &samplerCI, nullptr, &textures[i].sampler));
+
+    ktxTexture_Destroy(ktxTexture);
+    textureDescriptors[i] = {
+      .sampler = textures[i].sampler,
+      .imageView = textures[i].view,
+      .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL
+    };
+
+    vkDestroyFence(device, fenceOneTime, nullptr);
+    vkFreeCommandBuffers(device, commandPool, 1, &cbOneTime);
+    vmaDestroyBuffer(allocator, imgSrcBuffer, imgSrcAllocation);
+  }
+
+  VkDescriptorBindingFlags descVariableFlag = VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+  VkDescriptorSetLayoutBindingFlagsCreateInfo descBindingFlags{
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+    .bindingCount = 1,
+    .pBindingFlags = &descVariableFlag
+  };
+  VkDescriptorSetLayoutBinding descLayoutBindingTex{
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = static_cast<uint32_t>(textures.size()),
+    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+  };
+  VkDescriptorSetLayoutCreateInfo descLayoutTexCI{
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+    .pNext = &descBindingFlags,
+    .bindingCount = 1,
+    .pBindings = &descLayoutBindingTex
+  };
+  VkDescriptorSetLayout descriptorSetLayoutTex;
+  VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutTexCI, nullptr, &descriptorSetLayoutTex));
+
+  VkDescriptorPoolSize poolSize{
+    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = static_cast<uint32_t>(textures.size())
+  };
+  VkDescriptorPoolCreateInfo descPoolCI{
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+    .maxSets = 1,
+    .poolSizeCount = 1,
+    .pPoolSizes = &poolSize
+  };
+  VkDescriptorPool descriptorPool;
+  VK_CHECK(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
+
+  uint32_t variableDescCount = static_cast<uint32_t>(textures.size());
+  VkDescriptorSetVariableDescriptorCountAllocateInfo variableDescCountAI{
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
+    .descriptorSetCount = 1,
+    .pDescriptorCounts = &variableDescCount
+  };
+  VkDescriptorSetAllocateInfo texDescSetAlloc{
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+    .pNext = &variableDescCountAI,
+    .descriptorPool = descriptorPool,
+    .descriptorSetCount = 1,
+    .pSetLayouts = &descriptorSetLayoutTex
+  };
+  VkDescriptorSet descriptorSetTex;
+  VK_CHECK(vkAllocateDescriptorSets(device, &texDescSetAlloc, &descriptorSetTex));
+
+  VkWriteDescriptorSet writeDescSet{
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = descriptorSetTex,
+    .dstBinding = 0,
+    .descriptorCount = static_cast<uint32_t>(textureDescriptors.size()),
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .pImageInfo = textureDescriptors.data()
+  };
+  vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+
+  vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+  vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
+  for (uint32_t i = 0; i < (uint32_t)textures.size(); i++) {
+    vkDestroySampler(device, textures[i].sampler, nullptr);
+    vkDestroyImageView(device, textures[i].view, nullptr);
+    vmaDestroyImage(allocator, textures[i].image, textures[i].allocation);
+  }
   vkFreeCommandBuffers(device, commandPool, maxFramesInFlight, commandBuffers.data());
   vkDestroyCommandPool(device, commandPool, nullptr);
   for (uint32_t i = 0; i < (uint32_t)renderCompleteSemaphores.size(); i++) {

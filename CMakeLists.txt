@@ -29,6 +29,27 @@ if (NOT EXISTS ${CMAKE_SOURCE_DIR}/assets/suzanne.mtl)
   )
 endif()
 
+if (NOT EXISTS ${CMAKE_SOURCE_DIR}/assets/suzanne0.ktx)
+  file(DOWNLOAD
+    https://raw.githubusercontent.com/SaschaWillems/HowToVulkan/refs/heads/main/source/assets/suzanne0.ktx
+    ${CMAKE_SOURCE_DIR}/assets/suzanne0.ktx
+  )
+endif()
+
+if (NOT EXISTS ${CMAKE_SOURCE_DIR}/assets/suzanne1.ktx)
+  file(DOWNLOAD
+    https://raw.githubusercontent.com/SaschaWillems/HowToVulkan/refs/heads/main/source/assets/suzanne1.ktx
+    ${CMAKE_SOURCE_DIR}/assets/suzanne1.ktx
+  )
+endif()
+
+if (NOT EXISTS ${CMAKE_SOURCE_DIR}/assets/suzanne2.ktx)
+  file(DOWNLOAD
+    https://raw.githubusercontent.com/SaschaWillems/HowToVulkan/refs/heads/main/source/assets/suzanne2.ktx
+    ${CMAKE_SOURCE_DIR}/assets/suzanne2.ktx
+  )
+endif()
+
 set(SDL_VER 3.4.16)
 file(DOWNLOAD
   https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VER}/SDL3-devel-${SDL_VER}-VC.zip
