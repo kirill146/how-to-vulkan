@@ -23,6 +23,11 @@
 
 // #include <ktx.h>
 
+#ifdef USE_SLANG_RUNTIME_COMPILER
+#include <slang/slang.h>
+#include <slang/slang-com-ptr.h>
+#endif
+
 void CheckVkResult(VkResult res, const char* file, int line) {
   if (res != VK_SUCCESS) {
     throw std::runtime_error(file + std::string(":") + std::to_string(line) + ": failed with VkResult " + std::to_string(res));
@@ -49,13 +54,13 @@ struct KtxTexture {
 
 std::vector<uint8_t> readFile(std::string path) {
   std::ifstream fin(path, std::ios::binary | std::ios::ate);
-  if (fin.bad()) {
+  if (fin.fail()) {
     throw std::runtime_error("Can't open " + path);
   }
   std::vector<uint8_t> buf(fin.tellg());
   fin.seekg(0);
   fin.read((char*)buf.data(), buf.size());
-  if (fin.bad()) {
+  if (fin.fail()) {
     throw std::runtime_error("Can't read " + path);
   }
   return buf;
@@ -624,6 +629,51 @@ void run(uint32_t deviceIndex) {
   };
   vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 
+#ifdef USE_SLANG_RUNTIME_COMPILER
+  Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
+  slang::createGlobalSession(slangGlobalSession.writeRef());
+  auto slangTargets{ std::to_array<slang::TargetDesc>({ {
+    .format = SLANG_SPIRV,
+    .profile = slangGlobalSession->findProfile("spirv_1_4")
+  } })};
+  auto slangOptions{ std::to_array<slang::CompilerOptionEntry>({ {
+      slang::CompilerOptionName::EmitSpirvDirectly,
+      {slang::CompilerOptionValueKind::Int, 1}
+  } })};
+  slang::SessionDesc slangSessionDesc{
+    .targets = slangTargets.data(),
+    .targetCount = SlangInt(slangTargets.size()),
+    .defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR,
+    .compilerOptionEntries = slangOptions.data(),
+    .compilerOptionEntryCount = (uint32_t)slangOptions.size()
+  };
+  Slang::ComPtr<slang::ISession> slangSession;
+  slangGlobalSession->createSession(slangSessionDesc, slangSession.writeRef());
+  Slang::ComPtr<slang::IModule> slangModule{
+    slangSession->loadModuleFromSource("triangle", "assets/shader.slang", nullptr, nullptr)
+  };
+  Slang::ComPtr<ISlangBlob> spirv;
+  std::cout << "1111" << std::endl;
+  slangModule->getTargetCode(0, spirv.writeRef());
+  std::cout << "2222" << std::endl;
+
+  VkShaderModuleCreateInfo shaderModuleCI{
+    .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+    .codeSize = spirv->getBufferSize(),
+    .pCode = (uint32_t*)spirv->getBufferPointer()
+  };
+#else
+  std::vector<uint8_t> spirv = readFile("shader.spirv");
+  VkShaderModuleCreateInfo shaderModuleCI{
+    .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+    .codeSize = spirv.size(),
+    .pCode = (uint32_t*)spirv.data()
+  };
+#endif
+  VkShaderModule shaderModule;
+  VK_CHECK(vkCreateShaderModule(device, &shaderModuleCI, nullptr, &shaderModule));
+
+  vkDestroyShaderModule(device, shaderModule, nullptr);
   vkDestroyDescriptorPool(device, descriptorPool, nullptr);
   vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
   for (uint32_t i = 0; i < (uint32_t)textures.size(); i++) {

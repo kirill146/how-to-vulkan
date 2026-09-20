@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.31 FATAL_ERROR)
 project(how-to-vulkan)
 
+option(USE_SLANG_RUNTIME_COMPILER "Compile shader at runtime" OFF)
+
 find_package(Vulkan REQUIRED COMPONENTS volk)
 
 file(DOWNLOAD
@@ -72,6 +74,17 @@ file(ARCHIVE_EXTRACT
   DESTINATION ${CMAKE_SOURCE_DIR}/external/
 )
 
+set(SLANG_VER 2026.17.1)
+file(DOWNLOAD
+  https://github.com/shader-slang/slang/releases/download/v2026.18/slang-2026.18-windows-x86_64.zip
+  ${CMAKE_SOURCE_DIR}/external/slang-${SLANG_VER}-windows-x86_64.zip
+  EXPECTED_HASH SHA256=6ffa4827b519fd0a85b38407049d87ab0c1f045fe2289cb1e6831f965169f8a1
+)
+file(ARCHIVE_EXTRACT
+  INPUT ${CMAKE_SOURCE_DIR}/external/slang-${SLANG_VER}-windows-x86_64.zip
+  DESTINATION ${CMAKE_SOURCE_DIR}/external/slang-${SLANG_VER}
+)
+
 add_executable(htv main.cpp)
 
 target_include_directories(htv SYSTEM PRIVATE
@@ -87,6 +100,25 @@ target_link_libraries(htv PRIVATE SDL3::SDL3)
 add_custom_command(TARGET htv POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> $<TARGET_FILE_DIR:htv>
 )
+
+if (USE_SLANG_RUNTIME_COMPILER)
+  list(APPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/external/slang-${SLANG_VER}")
+  find_package(slang REQUIRED)
+  target_link_libraries(htv PRIVATE slang::slang)
+  target_compile_definitions(htv PUBLIC USE_SLANG_RUNTIME_COMPILER)
+else()
+  # add_custom_command(OUTPUT $<TARGET_FILE_DIR:htv>/assets COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:htv>/assets)
+  add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/shader.spirv
+    COMMAND slangc assets/shader.slang -target spirv -profile spirv_1_4 -fvk-use-entrypoint-name -o ${CMAKE_CURRENT_BINARY_DIR}//shader.spirv
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    DEPENDS assets/shader.slang
+    COMMENT "Compiling shader.slang"
+    VERBATIM
+  )
+  add_custom_target(shader DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/shader.spirv)
+  add_dependencies(htv shader)
+endif()
 
 target_compile_features(htv PRIVATE cxx_std_20)
 

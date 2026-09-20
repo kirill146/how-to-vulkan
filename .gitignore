@@ -1,4 +1,5 @@
 /build/
 /external/
-/assets/
+/assets/*
+!/assets/shader.slang
 .nvim.lua
