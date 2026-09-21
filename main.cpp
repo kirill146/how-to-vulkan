@@ -802,14 +802,17 @@ void run(uint32_t deviceIndex) {
   uint32_t frameIndex = 0;
   glm::vec3 camPos{ 0.0f, 0.0f, -6.0f };
   glm::vec3 objectRotations[3]{};
+  bool updateSwapchain = false;
   while (!quit) {
     VK_CHECK(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
     VK_CHECK(vkResetFences(device, 1, &fences[frameIndex]));
 
     uint32_t imageIndex;
     VkResult err = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAcquiredSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
-    if (err != VK_SUCCESS && err != VK_ERROR_OUT_OF_DATE_KHR) {
-      throw std::runtime_error("Failed to vkAcquireNextImageKHR(), err " + std::to_string(err));
+    if (err == VK_ERROR_OUT_OF_DATE_KHR) {
+      updateSwapchain = true;
+    } else {
+      VK_CHECK(err);
     }
 
     shaderData.projection = glm::perspective(glm::radians(45.0f), (float)windowWidth / (float)windowHeight, 0.1f, 32.0f);
@@ -962,8 +965,10 @@ void run(uint32_t deviceIndex) {
       .pImageIndices = &imageIndex
     };
     err = vkQueuePresentKHR(queue, &presentInfo);
-    if (err != VK_SUCCESS && err != VK_ERROR_OUT_OF_DATE_KHR) {
-      throw std::runtime_error("Failed to vkQueuePresentKHR(), err " + std::to_string(err));
+    if (err == VK_ERROR_OUT_OF_DATE_KHR) {
+      updateSwapchain = true;
+    } else {
+      VK_CHECK(err);
     }
 
     float elapsedTime = (SDL_GetTicks() - lastTime) / 1000.0f;
@@ -1000,8 +1005,59 @@ void run(uint32_t deviceIndex) {
 
       // Window resize
       if (event.type == SDL_EVENT_WINDOW_RESIZED) {
-        // updateSwapchain = true;
+        CHECK(SDL_GetWindowSize(window, (int*)&windowWidth, (int*)&windowHeight));
+        updateSwapchain = true;
       }
+    }
+
+    if (updateSwapchain) {
+      updateSwapchain = false;
+      VK_CHECK(vkDeviceWaitIdle(device));
+      VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(devices[deviceIndex], surface, &surfaceCaps));
+      swapchainInfo.oldSwapchain = swapchain;
+      swapchainInfo.imageExtent = { .width = windowWidth, .height = windowHeight };
+      VK_CHECK(vkCreateSwapchainKHR(device, &swapchainInfo, nullptr, &swapchain));
+      for (uint32_t i = 0; i < imageCount; i++) {
+        vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+      }
+      VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr));
+      swapchainImages.resize(imageCount);
+      VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data()));
+      swapchainImageViews.resize(imageCount);
+      for (auto i = 0; i < imageCount; i++) {
+        VkImageViewCreateInfo viewCI{
+          .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+          .image = swapchainImages[i],
+          .viewType = VK_IMAGE_VIEW_TYPE_2D,
+          .format = imageFormat,
+          .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}
+        };
+        VK_CHECK(vkCreateImageView(device, &viewCI, nullptr, &swapchainImageViews[i]));
+      }
+      for (auto& semaphore : renderCompleteSemaphores) {
+        vkDestroySemaphore(device, semaphore, nullptr);
+      }
+      renderCompleteSemaphores.resize(imageCount);
+      for (auto& semaphore : renderCompleteSemaphores) {
+        VK_CHECK(vkCreateSemaphore(device, &semaphoreCI, nullptr, &semaphore));
+      }
+      vkDestroySwapchainKHR(device, swapchainInfo.oldSwapchain, nullptr);
+      vmaDestroyImage(allocator, depthImage, depthImageAllocation);
+      vkDestroyImageView(device, depthImageView, nullptr);
+      depthImageInfo.extent = { .width = windowWidth, .height = windowHeight, .depth = 1 };
+      VmaAllocationCreateInfo allocCI{
+        .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO
+      };
+      VK_CHECK(vmaCreateImage(allocator, &depthImageInfo, &allocCI, &depthImage, &depthImageAllocation, nullptr));
+      VkImageViewCreateInfo viewCI{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = depthImage,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = depthFormat,
+        .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 }
+      };
+      VK_CHECK(vkCreateImageView(device, &viewCI, nullptr, &depthImageView));
     }
 
     frameIndex = (frameIndex + 1) % maxFramesInFlight;
