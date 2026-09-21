@@ -146,12 +146,9 @@ void run(uint32_t deviceIndex) {
   };
   uint32_t instanceExtensionsCount = 0;
   const char* const* instanceExtensions = SDL_Vulkan_GetInstanceExtensions(&instanceExtensionsCount);
-  // const char* const* instanceExtensions = nullptr;
   VkInstanceCreateInfo instanceInfo{
     .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
     .pApplicationInfo = &appInfo,
-    // .enabledExtensionCount = 0,
-    // .ppEnabledLayerNames = nullptr,
     .enabledExtensionCount = instanceExtensionsCount,
     .ppEnabledExtensionNames = instanceExtensions,
   };
@@ -244,6 +241,7 @@ void run(uint32_t deviceIndex) {
   }
   VkSurfaceKHR surface;
   CHECK(SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface));
+
   uint32_t windowWidth, windowHeight;
   CHECK(SDL_GetWindowSize(window, (int*)&windowWidth, (int*)&windowHeight));
   VkSurfaceCapabilitiesKHR surfaceCaps;
@@ -1074,7 +1072,6 @@ void run(uint32_t deviceIndex) {
     vkDestroyImageView(device, textures[i].view, nullptr);
     vmaDestroyImage(allocator, textures[i].image, textures[i].allocation);
   }
-  vkFreeCommandBuffers(device, commandPool, maxFramesInFlight, commandBuffers.data());
   vkDestroyCommandPool(device, commandPool, nullptr);
   for (uint32_t i = 0; i < (uint32_t)renderCompleteSemaphores.size(); i++) {
     vkDestroySemaphore(device, renderCompleteSemaphores[i], nullptr);
@@ -1082,8 +1079,6 @@ void run(uint32_t deviceIndex) {
   for (uint32_t i = 0; i < maxFramesInFlight; i++) {
     vkDestroyFence(device, fences[i], nullptr);
     vkDestroySemaphore(device, imageAcquiredSemaphores[i], nullptr);
-  }
-  for (uint32_t i = 0; i < maxFramesInFlight; i++) {
     vmaDestroyBuffer(allocator, shaderDataBuffers[i].buffer, shaderDataBuffers[i].allocation);
   }
   vmaDestroyBuffer(allocator, vBuffer, vBufferAllocation);
@@ -1094,6 +1089,10 @@ void run(uint32_t deviceIndex) {
   }
   vkDestroySwapchainKHR(device, swapchain, nullptr);
   SDL_Vulkan_DestroySurface(instance, surface, nullptr);
+  SDL_DestroyWindow(window);
+  SDL_Vulkan_UnloadLibrary();
+  SDL_QuitSubSystem(SDL_INIT_VIDEO);
+  SDL_Quit();
   vmaDestroyAllocator(allocator);
   vkDestroyDevice(device, nullptr);
   vkDestroyInstance(instance, nullptr);
